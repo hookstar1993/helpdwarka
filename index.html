@@ -1,1150 +1,244 @@
-<?php
-/**
- * HELPDWARKA - ONE-CLICK COMPLETE PROJECT & ZIP GENERATOR
- * Run this file in browser: http://localhost/build_project.php
- * Or via CLI: php build_project.php
- */
-declare(strict_types=1);
-error_reporting(E_ALL);
-ini_set('display_errors', '1');
-
-$baseDir = __DIR__ . '/helpdwarka';
-if (!is_dir($baseDir)) {
-    mkdir($baseDir, 0755, true);
-}
-
-// 1. Directory Tree
-$dirs = [
-    $baseDir . '/includes',
-    $baseDir . '/api',
-    $baseDir . '/admin',
-    $baseDir . '/assets/css',
-    $baseDir . '/assets/js',
-    $baseDir . '/cache',
-    $baseDir . '/logs'
-];
-foreach ($dirs as $d) {
-    if (!is_dir($d)) mkdir($d, 0755, true);
-}
-
-// 2. All Project Files & Complete Source Code
-$files = [];
-
-// .htaccess
-$files['.htaccess'] = <<< 'HTACCESS'
-ServerSignature Off
-Options -Indexes -MultiViews
-AddDefaultCharset UTF-8
-
-<IfModule mod_deflate.c>
-    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json
-</IfModule>
-
-<IfModule mod_headers.c>
-    Header set X-Content-Type-Options "nosniff"
-    Header set X-Frame-Options "SAMEORIGIN"
-    Header set X-XSS-Protection "1; mode=block"
-    Header set Referrer-Policy "strict-origin-when-cross-origin"
-</IfModule>
-
-<FilesMatch "^(config\.php|\.env|\.git)$">
-    Order allow,deny
-    Deny from all
-</FilesMatch>
-
-RewriteEngine On
-RewriteRule ^(cache|logs)/ - [F,L]
-HTACCESS;
-
-// config.php
-$files['config.php'] = <<< 'PHP'
-<?php
-declare(strict_types=1);
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start([
-        'cookie_lifetime' => 86400,
-        'cookie_secure'   => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on',
-        'cookie_httponly' => true,
-        'cookie_samesite' => 'Lax'
-    ]);
-}
-
-define('APP_NAME', 'HelpDwarka');
-define('APP_TAGLINE', 'Your Complete & Authentic Dwarka Yatra Guidance Portal');
-define('APP_VERSION', '2.0.0');
-define('BASE_URL', (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost'));
-
-// Google Apps Script Web App URL
-define('SHEETS_API_URL', 'https://script.google.com/macros/s/YOUR_SCRIPT_ID_HERE/exec');
-
-// Cache configuration
-define('CACHE_DIR', __DIR__ . '/cache');
-define('CACHE_TTL', 900); // 15 mins
-
-// Admin Credentials
-define('ADMIN_USER', 'admin');
-define('ADMIN_PASS_HASH', '$2y$10$v06gRzL8l5t7Lp9PcqKqve4d4g/eFvW/v43m.y5qE6lG1pP4gE5xK'); 
-
-date_default_timezone_set('Asia/Kolkata');
-PHP;
-
-// Google Apps Script Code.gs
-$files['Code.gs'] = <<< 'GS'
-/**
- * HelpDwarka - Google Apps Script REST API Bridge
- * Deploy as Web App -> Execute as 'Me' -> Access 'Anyone'
- */
-function doGet(e) {
-  const tab = (e && e.parameter && e.parameter.tab) ? e.parameter.tab : 'UPDATES';
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(tab);
-
-  if (!sheet) {
-    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Tab ' + tab + ' not found' }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  const data = sheet.getDataRange().getValues();
-  if (data.length < 2) {
-    return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: [] }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  const headers = data[0].map(h => String(h).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'));
-  const rows = [];
-
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    if (!row[0]) continue;
-    let obj = {};
-    for (let j = 0; j < headers.length; j++) {
-      let val = row[j];
-      if (val instanceof Date) {
-        val = Utilities.formatDate(val, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm");
-      }
-      obj[headers[j]] = val;
-    }
-    if (obj.status !== 'hidden' && obj.status !== 'archived') {
-      rows.push(obj);
-    }
-  }
-
-  return ContentService.createTextOutput(JSON.stringify({ status: 'success', count: rows.length, tab: tab, data: rows }))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-GS;
-
-// includes/Security.php
-$files['includes/Security.php'] = <<< 'PHP'
-<?php
-declare(strict_types=1);
-
-class Security {
-    public static function generateCsrfToken(): string {
-        if (empty($_SESSION['csrf_token'])) {
-            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-        }
-        return $_SESSION['csrf_token'];
-    }
-
-    public static function validateCsrfToken(?string $token): bool {
-        return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], (string)$token);
-    }
-
-    public static function sanitize(mixed $data): mixed {
-        if (is_array($data)) {
-            return array_map([self::class, 'sanitize'], $data);
-        }
-        return htmlspecialchars(trim((string)$data), ENT_QUOTES, 'UTF-8');
-    }
-
-    public static function checkRateLimit(string $key, int $limit = 10, int $period = 60): bool {
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-        $bucketKey = "rate_{$key}_" . md5($ip);
-        $file = CACHE_DIR . '/' . $bucketKey . '.json';
-
-        if (!is_dir(CACHE_DIR)) @mkdir(CACHE_DIR, 0755, true);
-
-        $now = time();
-        $history = file_exists($file) ? json_decode(file_get_contents($file), true) : [];
-        $history = array_filter($history ?? [], fn($timestamp) => ($now - $timestamp) < $period);
-
-        if (count($history) >= $limit) return false;
-
-        $history[] = $now;
-        @file_put_contents($file, json_encode($history), LOCK_EX);
-        return true;
-    }
-}
-PHP;
-
-// includes/SheetsClient.php
-$files['includes/SheetsClient.php'] = <<< 'PHP'
-<?php
-declare(strict_types=1);
-
-class SheetsClient {
-    public static function getTab(string $tab): array {
-        $tab = strtoupper(trim($tab));
-        $cacheFile = CACHE_DIR . "/tab_{$tab}.json";
-
-        if (!is_dir(CACHE_DIR)) @mkdir(CACHE_DIR, 0755, true);
-
-        if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < CACHE_TTL) {
-            $cached = json_decode(file_get_contents($cacheFile), true);
-            if (is_array($cached)) return $cached;
-        }
-
-        if (str_contains(SHEETS_API_URL, 'YOUR_SCRIPT_ID_HERE')) {
-            return self::getFallbackData($tab);
-        }
-
-        $url = SHEETS_API_URL . '?tab=' . urlencode($tab);
-        $ctx = stream_context_create([
-            'http' => ['timeout' => 5, 'header' => "User-Agent: HelpDwarka-Sync/2.0\r\n"]
-        ]);
-
-        $res = @file_get_contents($url, false, $ctx);
-        if ($res !== false) {
-            $json = json_decode($res, true);
-            if (isset($json['status']) && $json['status'] === 'success' && isset($json['data'])) {
-                @file_put_contents($cacheFile, json_encode($json['data']), LOCK_EX);
-                return $json['data'];
-            }
-        }
-
-        return file_exists($cacheFile) ? (json_decode(file_get_contents($cacheFile), true) ?? []) : self::getFallbackData($tab);
-    }
-
-    public static function clearCache(): bool {
-        if (!is_dir(CACHE_DIR)) return true;
-        foreach (glob(CACHE_DIR . '/*.json') as $file) {
-            if (is_file($file)) @unlink($file);
-        }
-        return true;
-    }
-
-    private static function getFallbackData(string $tab): array {
-        switch ($tab) {
-            case 'TEMPLES':
-                return [
-                    [
-                        'id' => 'TMP01',
-                        'name' => 'Shri Dwarkadhish Jagat Mandir',
-                        'deity' => 'Lord Krishna',
-                        'history' => 'Over 2,500 years old, legendary 7-tier spire where pilgrims seek divine salvation.',
-                        'darshan_timings' => '06:30 AM – 01:00 PM | 05:00 PM – 09:30 PM',
-                        'aarti_timings' => 'Mangla: 06:30 AM | Shayan: 08:30 PM',
-                        'dress_code' => 'Traditional modest attire. Electronic items strictly prohibited inside.',
-                        'verified' => 'YES',
-                        'last_verified' => date('Y-m-d')
-                    ],
-                    [
-                        'id' => 'TMP02',
-                        'name' => 'Rukmini Devi Temple',
-                        'deity' => 'Goddess Rukmini',
-                        'history' => '12th-century architectural masterpiece with detailed Jal-Daan ritual history.',
-                        'darshan_timings' => '06:00 AM – 12:30 PM | 01:30 PM – 07:30 PM',
-                        'aarti_timings' => 'Morning Aarti: 06:30 AM',
-                        'dress_code' => 'Modest pilgrim wear.',
-                        'verified' => 'YES',
-                        'last_verified' => date('Y-m-d')
-                    ]
-                ];
-            case 'STAY':
-                return [
-                    [
-                        'id' => 'STY01',
-                        'name' => 'Shri Krishna Trust Dharamshala',
-                        'category' => 'Dharamshala',
-                        'area' => 'Near Temple Gate 56',
-                        'public_phone' => '+91 2892 234000',
-                        'food_type' => 'Satvik Bhojanalaya Attached',
-                        'notes' => 'Allocations on direct arrival counter only. Never pay advance UPI to strangers.',
-                        'verified' => 'YES',
-                        'last_verified' => date('Y-m-d')
-                    ],
-                    [
-                        'id' => 'STY02',
-                        'name' => 'Dwarkadhish Atithi Bhavan',
-                        'category' => 'Ashram / Guest House',
-                        'area' => 'Station Road',
-                        'public_phone' => '+91 2892 234555',
-                        'food_type' => 'Pure Vegetarian Kitchen',
-                        'notes' => 'Family rooms with elevator access. Strict silence after 10 PM.',
-                        'verified' => 'YES',
-                        'last_verified' => date('Y-m-d')
-                    ]
-                ];
-            case 'SAFETY_ALERTS':
-                return [
-                    [
-                        'id' => 'SFT01',
-                        'title' => 'Dharamshala UPI Advance Payment Scam Alert',
-                        'message' => 'Scammers create fake phone numbers on search maps demanding Rs 1000 advance. True trust dharamshalas allocate rooms strictly at physical arrival counter.',
-                        'priority' => 'HIGH',
-                        'popup' => 'YES',
-                        'date' => date('Y-m-d')
-                    ]
-                ];
-            default:
-                return [];
-        }
-    }
-}
-PHP;
-
-// includes/i18n.php
-$files['includes/i18n.php'] = <<< 'PHP'
-<?php
-declare(strict_types=1);
-
-class Lang {
-    private static array $dict = [
-        'hi' => [
-            'site_name' => 'हेल्पद्वारका',
-            'tagline' => 'द्वारका यात्रा और दर्शन की प्रामाणिक मार्गदर्शिका',
-            'home' => 'मुख्य पृष्ठ',
-            'stay' => 'आवास (धर्मशाला/होटल)',
-            'food' => 'सात्विक भोजन',
-            'temples' => 'मंदिर एवं आरती',
-            'explore' => 'समुद्र तट व दर्शनीय स्थल',
-            'safety' => 'सुरक्षा शील्ड',
-            'search_placeholder' => 'धर्मशाला, मंदिर या सात्विक भोजन खोजें...',
-            'no_booking_notice' => 'सूचना: यह केवल सूचनात्मक पोर्टल है। हम कोई बुकिंग या अग्रिम भुगतान नहीं लेते।'
-        ],
-        'gu' => [
-            'site_name' => 'હેલ્પદ્વારકા',
-            'tagline' => 'દ્વારકા યાત્રા અને દર્શન માટે સંપૂર્ણ માર્ગદર્શિકા',
-            'home' => 'મુખ્ય પૃષ્ઠ',
-            'stay' => 'ધર્મશાળા / હોટેલ',
-            'food' => 'સાત્વિક ભોજન',
-            'temples' => 'મંદિરો અને આરતી',
-            'explore' => 'જોવાલાયક સ્થળો',
-            'safety' => 'સુરક્ષા કવચ',
-            'search_placeholder' => 'ધર્મશાળા, ભોજનાલય અથવા મંદિર શોધો...',
-            'no_booking_notice' => 'ચેતવણી: આ માત્ર માહિતી પોર્ટલ છે. અમે કોઈ બુકિંગ કે ચુકવણી સ્વીકારતા નથી.'
-        ],
-        'en' => [
-            'site_name' => 'HelpDwarka',
-            'tagline' => 'Complete Pilgrimage & Travel Guide to Dwarka',
-            'home' => 'Home',
-            'stay' => 'Stay',
-            'food' => 'Satvik Food',
-            'temples' => 'Temples',
-            'explore' => 'Explore',
-            'safety' => 'Safety Shield',
-            'search_placeholder' => 'Search dharamshalas, aarti timings, satvik food...',
-            'no_booking_notice' => 'Notice: Information-only directory. We do not accept bookings or payments.'
-        ]
-    ];
-
-    public static function getLang(): string {
-        if (!empty($_GET['lang']) && in_array($_GET['lang'], ['hi', 'gu', 'en'])) {
-            $_SESSION['lang'] = $_GET['lang'];
-        }
-        return $_SESSION['lang'] ?? 'hi';
-    }
-
-    public static function get(string $key): string {
-        $l = self::getLang();
-        return self::$dict[$l][$key] ?? self::$dict['en'][$key] ?? $key;
-    }
-}
-PHP;
-
-// assets/css/style.css
-$files['assets/css/style.css'] = <<< 'CSS'
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;0,900;1,600&display=swap');
-
-:root {
-  --font-hero: 'Playfair Display', serif;
-  --font-ui: 'Plus Jakarta Sans', sans-serif;
-  --bg-deep: #06090E;
-  --bg-surface: rgba(18, 24, 38, 0.75);
-  --bg-glass: rgba(255, 255, 255, 0.06);
-  --border-glass: rgba(255, 255, 255, 0.12);
-  --border-glow: rgba(240, 109, 36, 0.45);
-  --saffron: #F06D24;
-  --saffron-gradient: linear-gradient(135deg, #FF7A00 0%, #E64A19 100%);
-  --gold: #E5B842;
-  --text-main: #FFFFFF;
-  --text-muted: #9EABBE;
-  --radius-dock: 100px;
-  --radius-bento: 24px;
-  --glow-shadow: 0 0 50px rgba(240, 109, 36, 0.25);
-}
-
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  font-family: var(--font-ui);
-  background-color: var(--bg-deep);
-  color: var(--text-main);
-  overflow-x: hidden;
-  line-height: 1.6;
-}
-
-/* Glass Dock Navigation */
-.dock-nav-container {
-  position: fixed;
-  top: 20px;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  z-index: 9999;
-  pointer-events: none;
-}
-.dock-nav {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: var(--bg-surface);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid var(--border-glass);
-  border-radius: var(--radius-dock);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-  position: relative;
-}
-.dock-nav::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  background: radial-gradient(180px circle at var(--mouse-x, -500px) var(--mouse-y, -500px), var(--border-glow), transparent 70%);
-  z-index: -1;
-  pointer-events: none;
-}
-.dock-logo {
-  font-family: var(--font-hero);
-  font-size: 1.35rem;
-  font-weight: 900;
-  color: #FFF;
-  padding: 0 16px;
-  text-decoration: none;
-}
-.dock-logo span {
-  background: var(--saffron-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-.dock-links { display: flex; list-style: none; gap: 4px; }
-.dock-links a {
-  display: block;
-  padding: 8px 14px;
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-decoration: none;
-  border-radius: 100px;
-  transition: all 0.25s ease;
-}
-.dock-links a:hover, .dock-links a.active {
-  color: #FFF;
-  background: var(--bg-glass);
-}
-
-/* Hero Section */
-.hero-viewport {
-  position: relative;
-  width: 100vw;
-  height: 92vh;
-  min-height: 650px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-#ripple-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 1;
-}
-.hero-vignette {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at center, rgba(6, 9, 14, 0.25) 0%, rgba(6, 9, 14, 0.88) 90%);
-  z-index: 2;
-  pointer-events: none;
-}
-.hero-content {
-  position: relative;
-  z-index: 3;
-  text-align: center;
-  max-width: 950px;
-  padding: 0 24px;
-}
-.hero-subtitle {
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 4px;
-  font-weight: 700;
-  color: var(--gold);
-  margin-bottom: 1rem;
-  display: inline-block;
-  padding: 6px 18px;
-  border-radius: 100px;
-  background: rgba(229, 184, 66, 0.1);
-  border: 1px solid rgba(229, 184, 66, 0.3);
-}
-.hero-title {
-  font-family: var(--font-hero);
-  font-size: clamp(2.5rem, 6.5vw, 5.2rem);
-  font-weight: 900;
-  line-height: 1.08;
-  letter-spacing: -1.5px;
-  margin-bottom: 1.8rem;
-}
-.hero-title span {
-  background: linear-gradient(135deg, #FFF 20%, var(--gold) 80%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* Gooey Search Bar */
-.gooey-search-wrapper { max-width: 650px; margin: 0 auto; }
-.gooey-search {
-  display: flex;
-  align-items: center;
-  background: rgba(18, 24, 38, 0.88);
-  border: 1px solid var(--border-glass);
-  border-radius: 100px;
-  padding: 6px 10px 6px 24px;
-  backdrop-filter: blur(20px);
-  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4), var(--glow-shadow);
-  transition: all 0.3s ease;
-}
-.gooey-search:focus-within {
-  border-color: var(--saffron);
-  box-shadow: 0 20px 45px rgba(240, 109, 36, 0.35);
-  transform: translateY(-2px);
-}
-.gooey-search input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: #FFF;
-  font-size: 1rem;
-  font-family: var(--font-ui);
-}
-.radial-glow-btn {
-  background: var(--saffron-gradient);
-  border: none;
-  color: #FFF;
-  font-weight: 700;
-  font-size: 0.92rem;
-  padding: 12px 26px;
-  border-radius: 100px;
-  cursor: pointer;
-  box-shadow: 0 4px 18px rgba(240, 109, 36, 0.4);
-  transition: transform 0.2s ease;
-}
-.radial-glow-btn:hover { transform: scale(1.03); }
-
-/* Marquee Notice */
-.magnetic-marquee {
-  overflow: hidden;
-  white-space: nowrap;
-  background: rgba(240, 109, 36, 0.08);
-  border-top: 1px solid rgba(240, 109, 36, 0.2);
-  border-bottom: 1px solid rgba(240, 109, 36, 0.2);
-  padding: 12px 0;
-  display: flex;
-}
-.marquee-track {
-  display: flex;
-  animation: marqueeScroll 35s linear infinite;
-  gap: 48px;
-}
-.marquee-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 0.88rem;
-  font-weight: 600;
-}
-.marquee-badge {
-  background: var(--saffron);
-  color: #FFF;
-  font-size: 0.7rem;
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-@keyframes marqueeScroll {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
-
-/* Bento Grid */
-.bento-section { max-width: 1280px; margin: 5rem auto; padding: 0 24px; }
-.bento-grid {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 24px;
-}
-.bento-card {
-  position: relative;
-  background: var(--bg-surface);
-  border-radius: var(--radius-bento);
-  border: 1px solid var(--border-glass);
-  padding: 32px;
-  backdrop-filter: blur(16px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-  transition: transform 0.3s ease;
-}
-.bento-card:hover { transform: translateY(-4px); }
-.col-8 { grid-column: span 8; }
-.col-4 { grid-column: span 4; }
-.col-6 { grid-column: span 6; }
-.col-12 { grid-column: span 12; }
-
-@media (max-width: 900px) {
-  .col-8, .col-4, .col-6 { grid-column: span 12; }
-  .dock-links { display: none; }
-}
-
-/* Toast */
-.glass-toast-portal {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 10000;
-  max-width: 380px;
-}
-.glass-toast {
-  background: rgba(18, 24, 38, 0.94);
-  border: 1px solid rgba(240, 109, 36, 0.5);
-  backdrop-filter: blur(20px);
-  border-radius: 20px;
-  padding: 18px;
-  box-shadow: var(--glow-shadow);
-  display: flex;
-  gap: 14px;
-  transform: translateY(100px);
-  opacity: 0;
-  transition: all 0.4s ease;
-}
-.glass-toast.visible {
-  transform: translateY(0);
-  opacity: 1;
-}
-
-/* Footer */
-.animated-footer {
-  background: #04060A;
-  border-top: 1px solid var(--border-glass);
-  padding: 5rem 0 2rem;
-  margin-top: 4rem;
-}
-CSS;
-
-// assets/js/webgl-slider.js
-$files['assets/js/webgl-slider.js'] = <<< 'JS'
-class RippleDisplacementSlider {
-  constructor(canvas, images) {
-    this.canvas = canvas;
-    this.gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    if (!this.gl) return;
-    this.images = images;
-    this.textures = [];
-    this.currentIdx = 0;
-    this.nextIdx = 1;
-    this.progress = 0;
-    this.isTransitioning = false;
-
-    this.init();
-  }
-
-  init() {
-    const vs = `
-      attribute vec2 pos;
-      varying vec2 uv;
-      void main() {
-        uv = (pos + 1.0) * 0.5;
-        uv.y = 1.0 - uv.y;
-        gl_Position = vec4(pos, 0.0, 1.0);
-      }
-    `;
-    const fs = `
-      precision mediump float;
-      uniform sampler2D tex1, tex2;
-      uniform float progress, time;
-      varying vec2 uv;
-      void main() {
-        float wave = sin(uv.y * 12.0 + time * 2.0) * 0.03 * (1.0 - abs(progress - 0.5) * 2.0);
-        vec2 p = uv + vec2(wave, wave);
-        vec4 c1 = texture2D(tex1, p + vec2(progress * 0.08, 0.0));
-        vec4 c2 = texture2D(tex2, p - vec2((1.0 - progress) * 0.08, 0.0));
-        gl_FragColor = mix(c1, c2, progress);
-      }
-    `;
-
-    const vShader = this.createShader(this.gl.VERTEX_SHADER, vs);
-    const fShader = this.createShader(this.gl.FRAGMENT_SHADER, fs);
-    this.prog = this.gl.createProgram();
-    this.gl.attachShader(this.prog, vShader);
-    this.gl.attachShader(this.prog, fShader);
-    this.gl.linkProgram(this.prog);
-    this.gl.useProgram(this.prog);
-
-    const buf = this.gl.createBuffer();
-    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buf);
-    this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), this.gl.STATIC_DRAW);
-
-    const pos = this.gl.getAttribLocation(this.prog, 'pos');
-    this.gl.enableVertexAttribArray(pos);
-    this.gl.vertexAttribPointer(pos, 2, this.gl.FLOAT, false, 0, 0);
-
-    this.uP = this.gl.getUniformLocation(this.prog, 'progress');
-    this.uT = this.gl.getUniformLocation(this.prog, 'time');
-    this.u1 = this.gl.getUniformLocation(this.prog, 'tex1');
-    this.u2 = this.gl.getUniformLocation(this.prog, 'tex2');
-
-    this.loadTextures(() => {
-      this.resize();
-      window.addEventListener('resize', () => this.resize());
-      this.render();
-    });
-  }
-
-  createShader(type, src) {
-    const s = this.gl.createShader(type);
-    this.gl.shaderSource(s, src);
-    this.gl.compileShader(s);
-    return s;
-  }
-
-  loadTextures(cb) {
-    let loaded = 0;
-    this.images.forEach((url, i) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = url;
-      img.onload = () => {
-        const t = this.gl.createTexture();
-        this.gl.bindTexture(this.gl.TEXTURE_2D, t);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, img);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
-        this.textures[i] = t;
-        loaded++;
-        if (loaded === this.images.length) cb();
-      };
-    });
-  }
-
-  next() {
-    if (this.isTransitioning) return;
-    this.nextIdx = (this.currentIdx + 1) % this.textures.length;
-    this.isTransitioning = true;
-    this.progress = 0;
-  }
-
-  resize() {
-    this.canvas.width = window.innerWidth;
-    this.canvas.height = window.innerHeight;
-    this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-  }
-
-  render(t = 0) {
-    if (this.isTransitioning) {
-      this.progress += 0.035;
-      if (this.progress >= 1.0) {
-        this.progress = 1.0;
-        this.currentIdx = this.nextIdx;
-        this.isTransitioning = false;
-      }
-    }
-    this.gl.activeTexture(this.gl.TEXTURE0);
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[this.currentIdx]);
-    this.gl.uniform1i(this.u1, 0);
-
-    this.gl.activeTexture(this.gl.TEXTURE1);
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[this.nextIdx]);
-    this.gl.uniform1i(this.u2, 1);
-
-    this.gl.uniform1f(this.uP, this.progress);
-    this.gl.uniform1f(this.uT, t * 0.001);
-    this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
-    requestAnimationFrame((time) => this.render(time));
-  }
-}
-window.RippleDisplacementSlider = RippleDisplacementSlider;
-JS;
-
-// assets/js/app.js
-$files['assets/js/app.js'] = <<< 'JS'
-document.addEventListener('DOMContentLoaded', () => {
-  // Spotlight
-  const dock = document.querySelector('.dock-nav');
-  if (dock) {
-    dock.addEventListener('mousemove', (e) => {
-      const rect = dock.getBoundingClientRect();
-      dock.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
-      dock.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
-    });
-  }
-
-  // WebGL Slider
-  const canvas = document.getElementById('ripple-canvas');
-  if (canvas && window.RippleDisplacementSlider) {
-    const images = [
-      'https://images.unsplash.com/photo-1596401057633-54a8fe8ef647?auto=format&fit=crop&w=1920&q=80',
-      'https://images.unsplash.com/photo-1544885935-98dd03b09034?auto=format&fit=crop&w=1920&q=80'
-    ];
-    const s = new RippleDisplacementSlider(canvas, images);
-    setInterval(() => s.next(), 6000);
-  }
-
-  // Live Toast Alerts
-  fetch('api/index.php?tab=SAFETY_ALERTS')
-    .then(r => r.json())
-    .then(res => {
-      if (!res.data || res.data.length === 0) return;
-      const alert = res.data[0];
-      const portal = document.createElement('div');
-      portal.className = 'glass-toast-portal';
-      portal.innerHTML = `
-        <div class="glass-toast visible">
-          <div style="font-size:1.6rem;">🛡️</div>
-          <div>
-            <div style="font-weight:700; color:var(--saffron); font-size:0.9rem;">${alert.title}</div>
-            <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">${alert.message}</div>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(portal);
-      setTimeout(() => portal.remove(), 7000);
-    }).catch(() => {});
-});
-JS;
-
-// includes/header.php
-$files['includes/header.php'] = <<< 'PHP'
-<?php
-declare(strict_types=1);
-require_once __DIR__ . '/../config.php';
-require_once __DIR__ . '/Security.php';
-require_once __DIR__ . '/i18n.php';
-$currentLang = Lang::getLang();
-$csrfToken = Security::generateCsrfToken();
-?>
 <!DOCTYPE html>
-<html lang="<?= htmlspecialchars($currentLang) ?>">
+<html lang="hi" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><?= htmlspecialchars($pageTitle ?? 'HelpDwarka | Complete Sacred Yatra Portal') ?></title>
-  <link rel="stylesheet" href="assets/css/style.css?v=<?= APP_VERSION ?>">
-</head>
-<body>
-<div class="dock-nav-container">
-  <nav class="dock-nav">
-    <a href="index.php" class="dock-logo">Help<span>Dwarka</span></a>
-    <ul class="dock-links">
-      <li><a href="index.php" class="<?= basename($_SERVER['PHP_SELF']) === 'index.php' ? 'active' : '' ?>"><?= Lang::get('home') ?></a></li>
-      <li><a href="temples.php" class="<?= basename($_SERVER['PHP_SELF']) === 'temples.php' ? 'active' : '' ?>"><?= Lang::get('temples') ?></a></li>
-      <li><a href="stay.php" class="<?= basename($_SERVER['PHP_SELF']) === 'stay.php' ? 'active' : '' ?>"><?= Lang::get('stay') ?></a></li>
-      <li><a href="food.php" class="<?= basename($_SERVER['PHP_SELF']) === 'food.php' ? 'active' : '' ?>"><?= Lang::get('food') ?></a></li>
-      <li><a href="safety.php" class="<?= basename($_SERVER['PHP_SELF']) === 'safety.php' ? 'active' : '' ?>" style="color:var(--saffron);"><?= Lang::get('safety') ?></a></li>
-    </ul>
-    <select onchange="location.href='?lang='+this.value" class="radial-glow-btn" style="padding:6px 12px; font-size:0.8rem; background:rgba(255,255,255,0.08);">
-      <option value="hi" <?= $currentLang === 'hi' ? 'selected' : '' ?>>हिन्दी</option>
-      <option value="gu" <?= $currentLang === 'gu' ? 'selected' : '' ?>>ગુજરાતી</option>
-      <option value="en" <?= $currentLang === 'en' ? 'selected' : '' ?>>English</option>
-    </select>
-  </nav>
-</div>
-<main>
-PHP;
+  <title>HelpDwarka | Complete Sacred Yatra & Stay Guide</title>
+  <meta name="description" content="Authentic yatra guide for Dwarka. Live temple timings, verified dharamshalas, satvik food, and anti-scam alerts.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,800;0,900;1,600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
-// includes/footer.php
-$files['includes/footer.php'] = <<< 'PHP'
-</main>
-<footer class="animated-footer">
-  <div style="max-width:1200px; margin:0 auto; padding:0 24px; text-align:center;">
-    <h3 style="font-family:var(--font-hero); font-size:1.8rem; margin-bottom:0.8rem;">Help<span style="color:var(--saffron);">Dwarka</span></h3>
-    <p style="color:var(--text-muted); font-size:0.88rem; max-width:650px; margin:0 auto 1.5rem;">
-      Information-only directory. HelpDwarka never handles bookings, advance room payments, or deposits. Always pay directly at physical trust registration counters upon arrival.
-    </p>
-    <div style="font-size:0.82rem; color:var(--text-muted); border-top:1px solid var(--border-glass); padding-top:1.5rem;">
-      © <?= date('Y') ?> HelpDwarka. Independent Community Initiative.
-    </div>
-  </div>
-</footer>
-<script src="assets/js/webgl-slider.js"></script>
-<script src="assets/js/app.js?v=<?= APP_VERSION ?>" defer></script>
-</body>
-</html>
-PHP;
-
-// index.php
-$files['index.php'] = <<< 'PHP'
-<?php
-declare(strict_types=1);
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/includes/SheetsClient.php';
-$pageTitle = "HelpDwarka | Complete Sacred Yatra & Stay Guide";
-require_once __DIR__ . '/includes/header.php';
-
-$temples = SheetsClient::getTab('TEMPLES');
-?>
-<section class="hero-viewport">
-  <canvas id="ripple-canvas"></canvas>
-  <div class="hero-vignette"></div>
-
-  <div class="hero-content">
-    <div class="hero-subtitle">Mokshapuri Dwarka Dham</div>
-    <h1 class="hero-title">Discover The <span>Sacred City</span></h1>
-
-    <div class="gooey-search-wrapper">
-      <form action="stay.php" method="GET" class="gooey-search">
-        <input type="text" name="q" placeholder="<?= Lang::get('search_placeholder') ?>" autocomplete="off">
-        <button type="submit" class="radial-glow-btn">Search</button>
-      </form>
-    </div>
-  </div>
-</section>
-
-<aside class="magnetic-marquee">
-  <div class="marquee-track">
-    <div class="marquee-item"><span class="marquee-badge">LIVE AARTI</span> Jagat Mandir: Mangla 06:30 AM | Shayan 08:30 PM</div>
-    <div class="marquee-item"><span class="marquee-badge">ANTI-SCAM</span> Never transfer advance UPI deposits for Dharamshalas online.</div>
-    <div class="marquee-item"><span class="marquee-badge">DHWAJAROHAN</span> Flag changing takes place 5 times daily at main temple spire.</div>
-    <div class="marquee-item"><span class="marquee-badge">LIVE AARTI</span> Jagat Mandir: Mangla 06:30 AM | Shayan 08:30 PM</div>
-  </div>
-</aside>
-
-<section class="bento-section">
-  <div class="bento-grid">
-    <div class="bento-card col-8">
-      <span style="color:var(--saffron); font-size:0.75rem; font-weight:800; text-transform:uppercase;">Devotional Track</span>
-      <h2 style="font-family:var(--font-hero); font-size:2rem; margin:0.5rem 0;">Shri Dwarkadhish Jagat Mandir</h2>
-      <p style="color:var(--text-muted); margin-bottom:1.5rem;">Experience Darshan at the 2500-year-old architectural jewel of Gujarat. View verified entry protocols and seasonal aarti schedules.</p>
-      <a href="temples.php" class="radial-glow-btn" style="text-decoration:none; display:inline-block;">View Aarti Timings &rarr;</a>
-    </div>
-
-    <div class="bento-card col-4">
-      <span style="color:var(--gold); font-size:0.75rem; font-weight:800; text-transform:uppercase;">Anti-Scam Protection</span>
-      <h2 style="font-family:var(--font-hero); font-size:1.5rem; margin:0.5rem 0;">Zero Booking Fees</h2>
-      <p style="color:var(--text-muted); font-size:0.88rem;">We never collect payments or provide broker reservations. Stay safe from fake WhatsApp booking scams.</p>
-      <a href="safety.php" style="color:var(--saffron); font-weight:700; text-decoration:none; display:inline-block; margin-top:1.2rem;">Read Security Rules &rarr;</a>
-    </div>
-
-    <div class="bento-card col-6">
-      <h3 style="font-family:var(--font-hero); font-size:1.5rem; margin-bottom:0.5rem;">Trust Dharamshalas & Stays</h3>
-      <p style="color:var(--text-muted); font-size:0.9rem;">Verified addresses, proximity to Jagat Mandir, and direct landline counters.</p>
-      <a href="stay.php" style="color:var(--gold); font-weight:700; text-decoration:none; display:inline-block; margin-top:1rem;">Open Stay Registry &rarr;</a>
-    </div>
-
-    <div class="bento-card col-6">
-      <h3 style="font-family:var(--font-hero); font-size:1.5rem; margin-bottom:0.5rem;">Satvik Bhojanalayas</h3>
-      <p style="color:var(--text-muted); font-size:0.9rem;">Onion-garlic-free prasadam centers, Annakshetras, and traditional Gujarati thali outlets.</p>
-      <a href="food.php" style="color:var(--gold); font-weight:700; text-decoration:none; display:inline-block; margin-top:1rem;">Explore Dining &rarr;</a>
-    </div>
-  </div>
-</section>
-<?php require_once __DIR__ . '/includes/footer.php'; ?>
-PHP;
-
-// stay.php
-$files['stay.php'] = <<< 'PHP'
-<?php
-declare(strict_types=1);
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/includes/SheetsClient.php';
-$pageTitle = "Dharamshalas & Stay Directory | HelpDwarka";
-require_once __DIR__ . '/includes/header.php';
-$stays = SheetsClient::getTab('STAY');
-?>
-<div class="bento-section" style="padding-top:120px;">
-  <div style="text-align:center; margin-bottom:3rem;">
-    <h1 style="font-family:var(--font-hero); font-size:2.8rem;">Dharamshalas & Pilgrim Stays</h1>
-    <p style="color:var(--text-muted); max-width:600px; margin:0.5rem auto;">Direct contacts only. Strictly no online booking fees or middleman charges.</p>
-  </div>
-
-  <div class="bento-grid">
-    <?php foreach ($stays as $s): ?>
-      <div class="bento-card col-6">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span style="color:var(--saffron); font-size:0.75rem; font-weight:800;"><?= htmlspecialchars($s['category'] ?? 'Stay') ?></span>
-          <span style="font-size:0.75rem; background:rgba(46,204,113,0.15); color:#2ecc71; padding:3px 8px; border-radius:100px;">✓ Verified Listing</span>
-        </div>
-        <h3 style="font-family:var(--font-hero); font-size:1.4rem; margin:0.6rem 0;"><?= htmlspecialchars($s['name']) ?></h3>
-        <p style="color:var(--text-muted); font-size:0.88rem; margin-bottom:1rem;">📍 <?= htmlspecialchars($s['area']) ?> • <em><?= htmlspecialchars($s['food_type'] ?? '') ?></em></p>
-        <p style="font-size:0.85rem; color:#DDD; margin-bottom:1.2rem;"><?= htmlspecialchars($s['notes'] ?? '') ?></p>
-        <?php if (!empty($s['public_phone'])): ?>
-          <a href="tel:<?= htmlspecialchars($s['public_phone']) ?>" class="radial-glow-btn" style="text-decoration:none; display:inline-block; font-size:0.85rem; padding:8px 18px;">
-            📞 Call Counter: <?= htmlspecialchars($s['public_phone']) ?>
-          </a>
-        <?php endif; ?>
-      </div>
-    <?php endforeach; ?>
-  </div>
-</div>
-<?php require_once __DIR__ . '/includes/footer.php'; ?>
-PHP;
-
-// temples.php
-$files['temples.php'] = <<< 'PHP'
-<?php
-declare(strict_types=1);
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/includes/SheetsClient.php';
-$pageTitle = "Dwarkadhish Darshan & Aarti Schedules | HelpDwarka";
-require_once __DIR__ . '/includes/header.php';
-$temples = SheetsClient::getTab('TEMPLES');
-?>
-<div class="bento-section" style="padding-top:120px;">
-  <div style="text-align:center; margin-bottom:3rem;">
-    <h1 style="font-family:var(--font-hero); font-size:2.8rem;">Holy Temples & Aarti Schedules</h1>
-    <p style="color:var(--text-muted); max-width:600px; margin:0.5rem auto;">Authentic darshan timings, temple protocols, and religious heritage.</p>
-  </div>
-
-  <div class="bento-grid">
-    <?php foreach ($temples as $t): ?>
-      <div class="bento-card col-12" style="padding:40px;">
-        <span style="color:var(--gold); font-size:0.75rem; font-weight:800;"><?= htmlspecialchars($t['deity']) ?></span>
-        <h2 style="font-family:var(--font-hero); font-size:2.2rem; margin:0.5rem 0;"><?= htmlspecialchars($t['name']) ?></h2>
-        <p style="color:var(--text-muted); margin-bottom:1.5rem; max-width:800px;"><?= htmlspecialchars($t['history']) ?></p>
-        
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:20px; background:rgba(0,0,0,0.3); padding:20px; border-radius:16px;">
-          <div>
-            <div style="color:var(--saffron); font-weight:700;">Darshan Window</div>
-            <div style="font-size:0.9rem; color:#EEE; margin-top:4px;"><?= htmlspecialchars($t['darshan_timings']) ?></div>
-          </div>
-          <div>
-            <div style="color:var(--gold); font-weight:700;">Aarti Timings</div>
-            <div style="font-size:0.9rem; color:#EEE; margin-top:4px;"><?= htmlspecialchars($t['aarti_timings']) ?></div>
-          </div>
-          <div>
-            <div style="color:#FFF; font-weight:700;">Advisory</div>
-            <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;"><?= htmlspecialchars($t['dress_code']) ?></div>
-          </div>
-        </div>
-      </div>
-    <?php endforeach; ?>
-  </div>
-</div>
-<?php require_once __DIR__ . '/includes/footer.php'; ?>
-PHP;
-
-// food.php
-$files['food.php'] = <<< 'PHP'
-<?php
-declare(strict_types=1);
-require_once __DIR__ . '/config.php';
-$pageTitle = "Satvik Bhojanalayas & Pure Veg | HelpDwarka";
-require_once __DIR__ . '/includes/header.php';
-?>
-<div class="bento-section" style="padding-top:120px;">
-  <div style="text-align:center; margin-bottom:3rem;">
-    <h1 style="font-family:var(--font-hero); font-size:2.8rem;">Satvik Food & Bhojanalayas</h1>
-    <p style="color:var(--text-muted);">Traditional Vaishnav & Jain prasadam options without onion or garlic.</p>
-  </div>
-  <div class="bento-grid">
-    <div class="bento-card col-6">
-      <span style="color:var(--saffron); font-weight:700; font-size:0.8rem;">VERIFIED SATVIK</span>
-      <h3 style="font-family:var(--font-hero); font-size:1.5rem; margin:0.5rem 0;">Dwarkadhish Annakshetra</h3>
-      <p style="color:var(--text-muted); font-size:0.9rem;">Prasadam hall serving sanctified, traditional balanced thali with pure ingredients.</p>
-      <div style="margin-top:1rem; font-size:0.85rem; color:var(--gold);">Lunch: 11:30 AM – 02:30 PM | Dinner: 07:00 PM – 09:30 PM</div>
-    </div>
-    <div class="bento-card col-6">
-      <span style="color:var(--gold); font-weight:700; font-size:0.8rem;">PURE VEGETARIAN</span>
-      <h3 style="font-family:var(--font-hero); font-size:1.5rem; margin:0.5rem 0;">Kathiyawadi & Gujarati Thali Centers</h3>
-      <p style="color:var(--text-muted); font-size:0.9rem;">Authentic regional Saurashtra meal options along Temple Road and Station Road.</p>
-      <div style="margin-top:1rem; font-size:0.85rem; color:var(--gold);">Open: 11:00 AM – 11:00 PM</div>
-    </div>
-  </div>
-</div>
-<?php require_once __DIR__ . '/includes/footer.php'; ?>
-PHP;
-
-// safety.php
-$files['safety.php'] = <<< 'PHP'
-<?php
-declare(strict_types=1);
-require_once __DIR__ . '/config.php';
-$pageTitle = "Anti-Scam Shield & Safety Guide | HelpDwarka";
-require_once __DIR__ . '/includes/header.php';
-?>
-<div class="bento-section" style="padding-top:120px; max-width:850px;">
-  <h1 style="font-family:var(--font-hero); font-size:2.8rem; margin-bottom:1rem; color:var(--saffron);">Pilgrim Safety & Anti-Scam Guide</h1>
-  <p style="color:var(--text-muted); margin-bottom:2rem;">Learn how to protect yourself and your family from accommodation deposit frauds.</p>
-  
-  <div class="bento-card col-12" style="margin-bottom:2rem;">
-    <h3 style="color:var(--gold); margin-bottom:0.5rem;">How Google Maps UPI Frauds Target Devotees</h3>
-    <p style="color:var(--text-muted); font-size:0.95rem; line-height:1.7;">
-      Fraudsters register fake phone numbers under legitimate Dharamshala titles on search maps. When pilgrims call, they demand an advance payment via UPI QR codes for "booking confirmation". Once money is sent, the caller is blocked.
-    </p>
-    <div style="background:rgba(240,109,36,0.15); border-left:4px solid var(--saffron); padding:14px; margin-top:1rem; font-weight:600;">
-      Golden Rule: Authentic trust dharamshalas in Dwarka register pilgrims in person on-spot.
-    </div>
-  </div>
-</div>
-<?php require_once __DIR__ . '/includes/footer.php'; ?>
-PHP;
-
-// api/index.php
-$files['api/index.php'] = <<< 'PHP'
-<?php
-declare(strict_types=1);
-require_once __DIR__ . '/../config.php';
-require_once __DIR__ . '/../includes/SheetsClient.php';
-header('Content-Type: application/json; charset=UTF-8');
-
-$tab = $_GET['tab'] ?? 'UPDATES';
-$data = SheetsClient::getTab($tab);
-
-echo json_encode(['status' => 'success', 'count' => count($data), 'data' => $data]);
-PHP;
-
-// Write all files
-foreach ($files as $relPath => $content) {
-    $target = $baseDir . '/' . $relPath;
-    $d = dirname($target);
-    if (!is_dir($d)) mkdir($d, 0755, true);
-    file_put_contents($target, $content);
-}
-
-// 3. Compress directly into helpdwarka.zip using native ZipArchive
-$zipPath = __DIR__ . '/helpdwarka.zip';
-if (file_exists($zipPath)) @unlink($zipPath);
-
-$zip = new ZipArchive();
-if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) === true) {
-    $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($baseDir, RecursiveDirectoryIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::LEAVES_ONLY
-    );
-
-    foreach ($iterator as $name => $file) {
-        if (!$file->isDir()) {
-            $filePath = $file->getRealPath();
-            $relativePath = substr($filePath, strlen($baseDir) + 1);
-            $zip->addFile($filePath, $relativePath);
-        }
+  <style>
+    :root {
+      --font-hero: 'Playfair Display', serif;
+      --font-ui: 'Plus Jakarta Sans', sans-serif;
+      --bg-deep: #06090E;
+      --bg-surface: rgba(18, 24, 38, 0.75);
+      --bg-glass: rgba(255, 255, 255, 0.06);
+      --border-glass: rgba(255, 255, 255, 0.12);
+      --border-glow: rgba(240, 109, 36, 0.45);
+      --saffron: #F06D24;
+      --saffron-gradient: linear-gradient(135deg, #FF7A00 0%, #E64A19 100%);
+      --gold: #E5B842;
+      --text-main: #FFFFFF;
+      --text-muted: #9EABBE;
+      --radius-dock: 100px;
+      --radius-bento: 24px;
+      --glow-shadow: 0 0 50px rgba(240, 109, 36, 0.25);
     }
-    $zip->close();
-}
 
-// 4. If accessed in browser, trigger immediate instant download
-if (php_sapi_name() !== 'cli' && file_exists($zipPath)) {
-    header('Content-Type: application/zip');
-    header('Content-Disposition: attachment; filename="helpdwarka.zip"');
-    header('Content-Length: ' . filesize($zipPath));
-    header('Pragma: no-cache');
-    readfile($zipPath);
-    exit;
-}
+    [data-theme="light"] {
+      --bg-deep: #F7F5F0;
+      --bg-surface: rgba(255, 255, 255, 0.88);
+      --bg-glass: rgba(255, 255, 255, 0.7);
+      --border-glass: rgba(0, 0, 0, 0.08);
+      --border-glow: rgba(240, 109, 36, 0.3);
+      --text-main: #0B1320;
+      --text-muted: #586579;
+    }
 
-echo "SUCCESS! Created 'helpdwarka.zip' and complete folder structure in: " . $baseDir . PHP_EOL;
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-ui);
+      background-color: var(--bg-deep);
+      color: var(--text-main);
+      overflow-x: hidden;
+      line-height: 1.6;
+      transition: background-color 0.3s ease;
+    }
+
+    /* Floating Glass Dock Navbar */
+    .dock-nav-container {
+      position: fixed;
+      top: 18px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      z-index: 9999;
+      pointer-events: none;
+    }
+    .dock-nav {
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: var(--bg-surface);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--border-glass);
+      border-radius: var(--radius-dock);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+      position: relative;
+    }
+    .dock-nav::after {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      background: radial-gradient(160px circle at var(--mouse-x, -500px) var(--mouse-y, -500px), var(--border-glow), transparent 70%);
+      z-index: -1;
+      pointer-events: none;
+    }
+    .dock-logo {
+      font-family: var(--font-hero);
+      font-size: 1.3rem;
+      font-weight: 900;
+      color: var(--text-main);
+      padding: 0 12px;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .dock-logo span {
+      background: var(--saffron-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .dock-links { display: flex; list-style: none; gap: 4px; }
+    .dock-links button {
+      background: transparent;
+      border: none;
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-radius: 100px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      font-family: inherit;
+    }
+    .dock-links button:hover, .dock-links button.active {
+      color: var(--text-main);
+      background: var(--bg-glass);
+    }
+    .dock-links button.active {
+      color: var(--saffron);
+    }
+
+    /* WebGL Hero Viewport */
+    .hero-viewport {
+      position: relative;
+      width: 100vw;
+      height: 90vh;
+      min-height: 600px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    #ripple-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+    .hero-vignette {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(6, 9, 14, 0.25) 0%, rgba(6, 9, 14, 0.9) 90%);
+      z-index: 2;
+      pointer-events: none;
+    }
+    .hero-content {
+      position: relative;
+      z-index: 3;
+      text-align: center;
+      max-width: 900px;
+      padding: 0 24px;
+    }
+    .hero-subtitle {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 4px;
+      font-weight: 700;
+      color: var(--gold);
+      margin-bottom: 1rem;
+      display: inline-block;
+      padding: 6px 18px;
+      border-radius: 100px;
+      background: rgba(229, 184, 66, 0.1);
+      border: 1px solid rgba(229, 184, 66, 0.3);
+    }
+    .hero-title {
+      font-family: var(--font-hero);
+      font-size: clamp(2.4rem, 6vw, 5rem);
+      font-weight: 900;
+      line-height: 1.1;
+      letter-spacing: -1.5px;
+      margin-bottom: 1.8rem;
+    }
+    .hero-title span {
+      background: linear-gradient(135deg, #FFF 20%, var(--gold) 80%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    /* Gooey Search Bar */
+    .gooey-search-wrapper { max-width: 620px; margin: 0 auto; }
+    .gooey-search {
+      display: flex;
+      align-items: center;
+      background: rgba(18, 24, 38, 0.88);
+      border: 1px solid var(--border-glass);
+      border-radius: 100px;
+      padding: 6px 8px 6px 20px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4), var(--glow-shadow);
+      transition: all 0.3s ease;
+    }
+    .gooey-search:focus-within {
+      border-color: var(--saffron);
+      box-shadow: 0 20px 45px rgba(240, 109, 36, 0.35);
+      transform: translateY(-2px);
+    }
+    .gooey-search input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #FFF;
+      font-size: 0.95rem;
+      font-family: inherit;
+    }
+    .radial-glow-btn {
+      background: var(--saffron-gradient);
+      border: none;
+      color: #FFF;
+      font-weight: 700;
+      font-size: 0.88rem;
+      padding: 10px 24px;
+      border-radius: 100px;
+      cursor: pointer;
+      box-shadow: 0 4px 18px rgba(240, 109, 36, 0.4);
+      transition: transform 0.2s ease;
+      font-family: inherit;
+    }
+    .radial-glow-btn:hover { transform: scale(1.03); }
+
+    /* Magnetic Marquee */
+    .magnetic-marquee {
+      overflow: hidden;
+      white-space: nowrap;
+      background: rgba(240, 109, 36, 0.08);
+      border-top: 1px solid rgba(240, 109, 36, 0.2);
+      border-bottom: 1px solid rgba(240, 109, 36, 0.2);
+      padding: 10px 0;
+      display: flex;
+    }
+    .marquee-track {
+      display: flex;
+      animation: marqueeScroll 32s linear infinite;
+      gap: 48px;
+    }
+    .marquee-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .marquee-badge {
+      backgro

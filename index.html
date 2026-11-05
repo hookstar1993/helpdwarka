@@ -241,4 +241,565 @@
       font-weight: 600;
     }
     .marquee-badge {
-      backgro
+      background: var(--saffron);
+      color: #FFF;
+      font-size: 0.68rem;
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+    @keyframes marqueeScroll {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+
+    /* Bento Grid */
+    .bento-section { max-width: 1240px; margin: 4rem auto; padding: 0 24px; }
+    .bento-grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 20px;
+    }
+    .bento-card {
+      position: relative;
+      background: var(--bg-surface);
+      border-radius: var(--radius-bento);
+      border: 1px solid var(--border-glass);
+      padding: 28px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+      transition: transform 0.3s ease;
+    }
+    .bento-card:hover { transform: translateY(-4px); }
+    .col-8 { grid-column: span 8; }
+    .col-4 { grid-column: span 4; }
+    .col-6 { grid-column: span 6; }
+    .col-12 { grid-column: span 12; }
+
+    @media (max-width: 860px) {
+      .col-8, .col-4, .col-6 { grid-column: span 12; }
+      .dock-links { display: none; }
+    }
+
+    /* View Switcher (SPA Mechanism) */
+    .page-view { display: none; }
+    .page-view.active-view { display: block; }
+
+    /* Live Toast Notification */
+    .glass-toast-portal {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 10000;
+      max-width: 360px;
+    }
+    .glass-toast {
+      background: rgba(18, 24, 38, 0.94);
+      border: 1px solid rgba(240, 109, 36, 0.5);
+      backdrop-filter: blur(20px);
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: var(--glow-shadow);
+      display: flex;
+      gap: 12px;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.4s ease;
+    }
+    .glass-toast.visible {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    /* Footer */
+    .animated-footer {
+      background: #04060A;
+      border-top: 1px solid var(--border-glass);
+      padding: 4rem 0 2rem;
+      margin-top: 5rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Floating Glass Dock -->
+  <div class="dock-nav-container">
+    <nav class="dock-nav">
+      <div class="dock-logo" onclick="switchTab('home')">Help<span>Dwarka</span></div>
+      <ul class="dock-links">
+        <li><button onclick="switchTab('home')" id="tab-home" class="active">मुख्य पृष्ठ</button></li>
+        <li><button onclick="switchTab('temples')" id="tab-temples">मंदिर एवं आरती</button></li>
+        <li><button onclick="switchTab('stay')" id="tab-stay">आवास (धर्मशाला)</button></li>
+        <li><button onclick="switchTab('food')" id="tab-food">सात्विक भोजन</button></li>
+        <li><button onclick="switchTab('safety')" id="tab-safety" style="color:var(--saffron);">सुरक्षा शील्ड</button></li>
+      </ul>
+      <button id="theme-btn" onclick="toggleTheme()" class="radial-glow-btn" style="padding:6px 12px; font-size:0.8rem; background:rgba(255,255,255,0.08);">🌙</button>
+    </nav>
+  </div>
+
+  <!-- TAB 1: HOME PAGE -->
+  <section id="view-home" class="page-view active-view">
+    <div class="hero-viewport">
+      <canvas id="ripple-canvas"></canvas>
+      <div class="hero-vignette"></div>
+
+      <div class="hero-content">
+        <div class="hero-subtitle">मोक्षपुरी द्वारका धाम</div>
+        <h1 class="hero-title">Discover The <span>Sacred City</span></h1>
+
+        <div class="gooey-search-wrapper">
+          <div class="gooey-search">
+            <input type="text" id="home-search" placeholder="धर्मशाला, मंदिर या सात्विक भोजन खोजें...">
+            <button onclick="executeSearch()" class="radial-glow-btn">Search</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Marquee Notice -->
+    <aside class="magnetic-marquee">
+      <div class="marquee-track">
+        <div class="marquee-item"><span class="marquee-badge">LIVE AARTI</span> जगत मंदिर: मंगला आरती 06:30 AM | शयन आरती 08:30 PM</div>
+        <div class="marquee-item"><span class="marquee-badge">ANTI-SCAM</span> धर्मशाला के लिए कभी भी ऑनलाइन UPI QR कोड पर अग्रिम भुगतान न करें।</div>
+        <div class="marquee-item"><span class="marquee-badge">ध्वजारोहण</span> मुख्य मंदिर शिखर पर प्रतिदिन 5 बार ध्वजा बदली जाती है।</div>
+        <div class="marquee-item"><span class="marquee-badge">LIVE AARTI</span> जगत मंदिर: मंगला आरती 06:30 AM | शयन आरती 08:30 PM</div>
+      </div>
+    </aside>
+
+    <!-- Bento Grid Navigation -->
+    <div class="bento-section">
+      <div class="bento-grid">
+        <div class="bento-card col-8">
+          <span style="color:var(--saffron); font-size:0.75rem; font-weight:800; text-transform:uppercase;">Devotional Track</span>
+          <h2 style="font-family:var(--font-hero); font-size:2rem; margin:0.5rem 0;">श्री द्वारकाधीश जगत मंदिर</h2>
+          <p style="color:var(--text-muted); margin-bottom:1.5rem;">भगवान श्री कृष्ण की पावन कर्मभूमि। दर्शन समय, आरती नियम, प्रवेश नियमावली और गोमती स्नान की प्रामाणिक जानकारी।</p>
+          <button onclick="switchTab('temples')" class="radial-glow-btn">आरती समय देखें &rarr;</button>
+        </div>
+
+        <div class="bento-card col-4">
+          <span style="color:var(--gold); font-size:0.75rem; font-weight:800; text-transform:uppercase;">Anti-Scam Alert</span>
+          <h2 style="font-family:var(--font-hero); font-size:1.4rem; margin:0.5rem 0;">Zero Booking Fees</h2>
+          <p style="color:var(--text-muted); font-size:0.85rem;">हम कोई बुकिंग या पैसे नहीं लेते। फर्जी WhatsApp नंबरों और एडवांस QR फ्रॉड से सावधान रहें।</p>
+          <button onclick="switchTab('safety')" style="background:none; border:none; color:var(--saffron); font-weight:700; cursor:pointer; margin-top:1.2rem; font-family:inherit;">सुरक्षा नियम पढ़ें &rarr;</button>
+        </div>
+
+        <div class="bento-card col-6">
+          <h3 style="font-family:var(--font-hero); font-size:1.4rem; margin-bottom:0.5rem;">ट्रस्ट धर्मशालाएं एवं आवास</h3>
+          <p style="color:var(--text-muted); font-size:0.88rem;">सत्यापित फोन नंबर, मंदिर से दूरी और सीधे रिसेप्शन काउंटर की जानकारी बिना किसी दलाल के।</p>
+          <button onclick="switchTab('stay')" style="background:none; border:none; color:var(--gold); font-weight:700; cursor:pointer; margin-top:1rem; font-family:inherit;">आवास सूची देखें &rarr;</button>
+        </div>
+
+        <div class="bento-card col-6">
+          <h3 style="font-family:var(--font-hero); font-size:1.4rem; margin-bottom:0.5rem;">सात्विक भोजनालय व अन्नक्षेत्र</h3>
+          <p style="color:var(--text-muted); font-size:0.88rem;">बिना प्याज-लहसुन का शुद्ध वैष्णव प्रसाद और पारंपरिक गुजराती थाली केंद्र।</p>
+          <button onclick="switchTab('food')" style="background:none; border:none; color:var(--gold); font-weight:700; cursor:pointer; margin-top:1rem; font-family:inherit;">भोजन केंद्र देखें &rarr;</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 2: TEMPLES -->
+  <section id="view-temples" class="page-view">
+    <div class="bento-section" style="padding-top:100px;">
+      <div style="text-align:center; margin-bottom:2.5rem;">
+        <h1 style="font-family:var(--font-hero); font-size:2.8rem;">Holy Temples & Aarti Schedules</h1>
+        <p style="color:var(--text-muted);">श्री द्वारकाधीश जगत मंदिर, रुक्मिणी देवी, नागेश्वर ज्योतिर्लिंग के दर्शन व आरती समय</p>
+      </div>
+
+      <div class="bento-grid" id="temple-list">
+        <!-- Rendered via JS -->
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 3: STAY DIRECTORY -->
+  <section id="view-stay" class="page-view">
+    <div class="bento-section" style="padding-top:100px;">
+      <div style="text-align:center; margin-bottom:2.5rem;">
+        <h1 style="font-family:var(--font-hero); font-size:2.8rem;">धर्मशालाएं एवं तीर्थ आवास</h1>
+        <p style="color:var(--text-muted);">सीधा रिसेप्शन संपर्क। ऑनलाइन अग्रिम भुगतान फ्रॉड से बचें।</p>
+      </div>
+
+      <div class="bento-grid" id="stay-list">
+        <!-- Rendered via JS -->
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 4: SATVIK FOOD -->
+  <section id="view-food" class="page-view">
+    <div class="bento-section" style="padding-top:100px;">
+      <div style="text-align:center; margin-bottom:2.5rem;">
+        <h1 style="font-family:var(--font-hero); font-size:2.8rem;">सात्विक भोजन व भोजनालय</h1>
+        <p style="color:var(--text-muted);">पारंपरिक वैष्णव व जैन अन्नक्षेत्र (बिना प्याज व लहसुन)</p>
+      </div>
+
+      <div class="bento-grid" id="food-list">
+        <!-- Rendered via JS -->
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 5: SAFETY SHIELD -->
+  <section id="view-safety" class="page-view">
+    <div class="bento-section" style="padding-top:100px; max-width:850px;">
+      <h1 style="font-family:var(--font-hero); font-size:2.5rem; margin-bottom:1rem; color:var(--saffron);">यात्री सुरक्षा एवं फ्रॉड चेतावनी</h1>
+      <p style="color:var(--text-muted); margin-bottom:2rem;">द्वारका आने वाले श्रद्धालुओं के लिए आवश्यक सुरक्षा दिशा-निर्देश।</p>
+
+      <div class="bento-card col-12" style="margin-bottom:1.5rem;">
+        <h3 style="color:var(--gold); margin-bottom:0.5rem;">फर्जी धर्मशाला एडवांस पेमेंट से कैसे बचें?</h3>
+        <p style="color:var(--text-muted); font-size:0.92rem; line-height:1.7;">
+          धोखेबाज लोग गूगल मैप्स पर प्रतिष्ठित धर्मशालाओं के नाम के आगे अपना मोबाइल नंबर जोड़ देते हैं। जब कोई फोन करता है, तो वे कमरे के नाम पर 500 से 1500 रुपये UPI QR कोड से मांगते हैं और फिर नंबर ब्लॉक कर देते हैं।
+        </p>
+        <div style="background:rgba(240,109,36,0.15); border-left:4px solid var(--saffron); padding:12px; margin-top:1rem; font-weight:600; font-size:0.9rem;">
+          नियम: द्वारका की कोई भी ट्रस्ट धर्मशाला ऑनलाइन एडवांस नहीं लेती। कमरा केवल काउंटर पर पहुंचकर ही मिलता है।
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Live Toast Portal -->
+  <div class="glass-toast-portal">
+    <div class="glass-toast" id="live-toast">
+      <div style="font-size:1.6rem;">🛡️</div>
+      <div>
+        <div style="font-weight:700; color:var(--saffron); font-size:0.88rem;">सुरक्षा चेतावनी</div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">धर्मशाला बुकिंग के लिए कभी भी ऑनलाइन एडवांस पेमेंट न भेजें।</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="animated-footer">
+    <div style="max-width:1200px; margin:0 auto; padding:0 24px;">
+      <h3 style="font-family:var(--font-hero); font-size:1.8rem; margin-bottom:0.8rem;">Help<span style="color:var(--saffron);">Dwarka</span></h3>
+      <p style="color:var(--text-muted); font-size:0.85rem; max-width:650px; margin:0 auto 1.5rem;">
+        यह केवल एक स्वतंत्र सूचनात्मक पोर्टल है। हम कोई होटल बुकिंग नहीं करते और न ही कोई भुगतान स्वीकार करते हैं।
+      </p>
+      <div style="font-size:0.8rem; color:var(--text-muted); border-top:1px solid var(--border-glass); padding-top:1.5rem;">
+        © 2026 HelpDwarka. Independent Community Initiative.
+      </div>
+    </div>
+  </footer>
+
+  <!-- Complete JS Engine: WebGL Shader + Data + UI Switcher -->
+  <script>
+    // 1. DATA REPOSITORY (Offline + Ready for Google Sheets Integration)
+    const APP_DATA = {
+      temples: [
+        {
+          name: "श्री द्वारकाधीश जगत मंदिर",
+          deity: "भगवान श्री कृष्ण",
+          history: "2500 वर्ष से अधिक प्राचीन, 7 मंजिला भव्य शिखर वाला जगप्रसिद्ध पावन धाम।",
+          darshan: "प्रातः 06:30 AM – 01:00 PM | सायं 05:00 PM – 09:30 PM",
+          aarti: "मंगला: 06:30 AM | शृंगार: 10:30 AM | संध्या: 07:30 PM | शयन: 08:30 PM",
+          advisory: "पारंपरिक वेशभूषा अनिवार्य। मंदिर परिसर में मोबाइल और कैमरा पूर्णतः प्रतिबंधित है।"
+        },
+        {
+          name: "रुक्मिणी देवी मंदिर",
+          deity: "माता रुक्मिणी",
+          history: "12वीं सदी की अद्भुत नक्काशीदार वास्तुकला। जल-दान महात्म्य का मुख्य केंद्र।",
+          darshan: "प्रातः 06:00 AM – 12:30 PM | दोपहर 01:30 PM – 07:30 PM",
+          aarti: "प्रातः 06:30 AM",
+          advisory: "शालीन वस्त्र पहनकर ही प्रवेश करें।"
+        },
+        {
+          name: "नागेश्वर ज्योतिर्लिंग",
+          deity: "भगवान शिव",
+          history: "12 पावन ज्योतिर्लिंगों में से एक, दारुकावन क्षेत्र में स्थित अति पावन धाम।",
+          darshan: "प्रातः 06:00 AM – रात्रि 09:00 PM",
+          aarti: "प्रातः 06:00 AM | सायं 07:00 PM",
+          advisory: "अभिषेक के लिए पारंपरिक वस्त्र (धोती) अनिवार्य है।"
+        }
+      ],
+      stays: [
+        {
+          name: "श्री कृष्ण ट्रस्ट धर्मशाला",
+          category: "ट्रस्ट धर्मशाला",
+          area: "मंदिर गेट 56 के पास",
+          food: "सात्विक अन्नक्षेत्र संलग्न",
+          notes: "कमरा केवल काउंटर पर पहुंचकर मिलता है। किसी भी फोन नंबर पर एडवांस पैसे न भेजें।",
+          phone: "+91 2892 234000"
+        },
+        {
+          name: "द्वारकाधीश अतिथि भवन",
+          category: "आश्रम / गेस्ट हाउस",
+          area: "स्टेशन रोड, द्वारका",
+          food: "शुद्ध शाकाहारी भोजनालय",
+          notes: "पारिवारिक यात्रियों के लिए उत्तम व्यवस्था, लिफ्ट सुविधा उपलब्ध।",
+          phone: "+91 2892 234555"
+        },
+        {
+          name: "बिड़ला धर्मशाला",
+          category: "धर्मशाला",
+          area: "गोमती घाट मार्ग",
+          food: "कैंटीन सुविधा",
+          notes: "साफ-सुथरे कमरे, गोमती नदी के बिल्कुल निकट।",
+          phone: "+91 2892 234111"
+        }
+      ],
+      foods: [
+        {
+          name: "द्वारकाधीश अन्नक्षेत्र (भोजनालय)",
+          category: "सात्विक अन्नक्षेत्र",
+          area: "मंदिर मुख्य द्वार के सामने",
+          timings: "दोपहर: 11:30 AM – 02:30 PM | रात्रि: 07:00 PM – 09:30 PM",
+          desc: "बिना प्याज-लहसुन का भगवान का शुद्ध प्रसाद रूपी भोजन।"
+        },
+        {
+          name: "श्रीजी काठियावाड़ी व गुजराती थाली",
+          category: "शुद्ध शाकाहारी",
+          area: "स्टेशन रोड",
+          timings: "प्रातः 11:00 AM – रात्रि 11:00 PM",
+          desc: "असीमित गुजराती एवं काठियावाड़ी पारंपरिक थाली।"
+        }
+      ]
+    };
+
+    // 2. RENDER FUNCTIONS
+    function renderContent() {
+      // Render Temples
+      const templeBox = document.getElementById('temple-list');
+      templeBox.innerHTML = APP_DATA.temples.map(t => `
+        <div class="bento-card col-12">
+          <span style="color:var(--gold); font-size:0.75rem; font-weight:800;">${t.deity}</span>
+          <h2 style="font-family:var(--font-hero); font-size:1.8rem; margin:0.4rem 0;">${t.name}</h2>
+          <p style="color:var(--text-muted); margin-bottom:1rem; font-size:0.9rem;">${t.history}</p>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:16px; background:rgba(0,0,0,0.3); padding:16px; border-radius:16px;">
+            <div><strong style="color:var(--saffron);">दर्शन समय:</strong><div style="font-size:0.85rem; color:#EEE;">${t.darshan}</div></div>
+            <div><strong style="color:var(--gold);">आरती समय:</strong><div style="font-size:0.85rem; color:#EEE;">${t.aarti}</div></div>
+            <div><strong style="color:#FFF;">नियम:</strong><div style="font-size:0.85rem; color:var(--text-muted);">${t.advisory}</div></div>
+          </div>
+        </div>
+      `).join('');
+
+      // Render Stays
+      const stayBox = document.getElementById('stay-list');
+      stayBox.innerHTML = APP_DATA.stays.map(s => `
+        <div class="bento-card col-6">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:var(--saffron); font-size:0.75rem; font-weight:800;">${s.category}</span>
+            <span style="font-size:0.72rem; background:rgba(46,204,113,0.15); color:#2ecc71; padding:3px 8px; border-radius:100px;">✓ Counter Verified</span>
+          </div>
+          <h3 style="font-family:var(--font-hero); font-size:1.35rem; margin:0.5rem 0;">${s.name}</h3>
+          <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:0.6rem;">📍 ${s.area} • <em>${s.food}</em></p>
+          <p style="font-size:0.85rem; color:#DDD; margin-bottom:1rem;">${s.notes}</p>
+          <a href="tel:${s.phone}" class="radial-glow-btn" style="text-decoration:none; display:inline-block; font-size:0.82rem; padding:8px 16px;">
+            📞 Call Counter: ${s.phone}
+          </a>
+        </div>
+      `).join('');
+
+      // Render Food
+      const foodBox = document.getElementById('food-list');
+      foodBox.innerHTML = APP_DATA.foods.map(f => `
+        <div class="bento-card col-6">
+          <span style="color:var(--saffron); font-weight:700; font-size:0.75rem;">${f.category}</span>
+          <h3 style="font-family:var(--font-hero); font-size:1.35rem; margin:0.4rem 0;">${f.name}</h3>
+          <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:0.5rem;">📍 ${f.area}</p>
+          <p style="font-size:0.85rem; color:#DDD; margin-bottom:0.8rem;">${f.desc}</p>
+          <div style="font-size:0.8rem; color:var(--gold);">🕒 ${f.timings}</div>
+        </div>
+      `).join('');
+    }
+
+    // 3. SPA TAB SWITCHER
+    function switchTab(tabId) {
+      document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active-view'));
+      document.querySelectorAll('.dock-links button').forEach(el => el.classList.remove('active'));
+
+      const targetView = document.getElementById('view-' + tabId);
+      const targetBtn = document.getElementById('tab-' + tabId);
+
+      if (targetView) targetView.classList.add('active-view');
+      if (targetBtn) targetBtn.classList.add('active');
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function executeSearch() {
+      const q = document.getElementById('home-search').value.toLowerCase().trim();
+      if (!q) return;
+      if (q.includes('mandir') || q.includes('aarti') || q.includes('temple')) {
+        switchTab('temples');
+      } else if (q.includes('food') || q.includes('thali') || q.includes('bhojan')) {
+        switchTab('food');
+      } else {
+        switchTab('stay');
+      }
+    }
+
+    // 4. THEME TOGGLE
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      document.getElementById('theme-btn').textContent = next === 'dark' ? '🌙' : '☀️';
+    }
+
+    // 5. WEBGL RIPPLE DISPLACEMENT SHADER
+    class WebGLSlider {
+      constructor(canvas) {
+        this.canvas = canvas;
+        this.gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!this.gl) return;
+        this.images = [
+          'https://images.unsplash.com/photo-1596401057633-54a8fe8ef647?auto=format&fit=crop&w=1920&q=80',
+          'https://images.unsplash.com/photo-1544885935-98dd03b09034?auto=format&fit=crop&w=1920&q=80'
+        ];
+        this.textures = [];
+        this.currentIdx = 0;
+        this.nextIdx = 1;
+        this.progress = 0;
+        this.isTransitioning = false;
+        this.init();
+      }
+
+      init() {
+        const vs = `
+          attribute vec2 pos;
+          varying vec2 uv;
+          void main() {
+            uv = (pos + 1.0) * 0.5;
+            uv.y = 1.0 - uv.y;
+            gl_Position = vec4(pos, 0.0, 1.0);
+          }
+        `;
+        const fs = `
+          precision mediump float;
+          uniform sampler2D tex1, tex2;
+          uniform float progress, time;
+          varying vec2 uv;
+          void main() {
+            float wave = sin(uv.y * 12.0 + time * 2.0) * 0.03 * (1.0 - abs(progress - 0.5) * 2.0);
+            vec2 p = uv + vec2(wave, wave);
+            vec4 c1 = texture2D(tex1, p + vec2(progress * 0.08, 0.0));
+            vec4 c2 = texture2D(tex2, p - vec2((1.0 - progress) * 0.08, 0.0));
+            gl_FragColor = mix(c1, c2, progress);
+          }
+        `;
+
+        const vShader = this.compileShader(this.gl.VERTEX_SHADER, vs);
+        const fShader = this.compileShader(this.gl.FRAGMENT_SHADER, fs);
+        this.prog = this.gl.createProgram();
+        this.gl.attachShader(this.prog, vShader);
+        this.gl.attachShader(this.prog, fShader);
+        this.gl.linkProgram(this.prog);
+        this.gl.useProgram(this.prog);
+
+        const buf = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buf);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), this.gl.STATIC_DRAW);
+
+        const pos = this.gl.getAttribLocation(this.prog, 'pos');
+        this.gl.enableVertexAttribArray(pos);
+        this.gl.vertexAttribPointer(pos, 2, this.gl.FLOAT, false, 0, 0);
+
+        this.uP = this.gl.getUniformLocation(this.prog, 'progress');
+        this.uT = this.gl.getUniformLocation(this.prog, 'time');
+        this.u1 = this.gl.getUniformLocation(this.prog, 'tex1');
+        this.u2 = this.gl.getUniformLocation(this.prog, 'tex2');
+
+        this.loadImages(() => {
+          this.resize();
+          window.addEventListener('resize', () => this.resize());
+          this.render();
+          setInterval(() => this.next(), 6000);
+        });
+      }
+
+      compileShader(type, src) {
+        const s = this.gl.createShader(type);
+        this.gl.shaderSource(s, src);
+        this.gl.compileShader(s);
+        return s;
+      }
+
+      loadImages(cb) {
+        let loaded = 0;
+        this.images.forEach((url, i) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.src = url;
+          img.onload = () => {
+            const t = this.gl.createTexture();
+            this.gl.bindTexture(this.gl.TEXTURE_2D, t);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, img);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+            this.textures[i] = t;
+            loaded++;
+            if (loaded === this.images.length) cb();
+          };
+        });
+      }
+
+      next() {
+        if (this.isTransitioning) return;
+        this.nextIdx = (this.currentIdx + 1) % this.textures.length;
+        this.isTransitioning = true;
+        this.progress = 0;
+      }
+
+      resize() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+        this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      }
+
+      render(t = 0) {
+        if (this.isTransitioning) {
+          this.progress += 0.035;
+          if (this.progress >= 1.0) {
+            this.progress = 1.0;
+            this.currentIdx = this.nextIdx;
+            this.isTransitioning = false;
+          }
+        }
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[this.currentIdx]);
+        this.gl.uniform1i(this.u1, 0);
+
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[this.nextIdx]);
+        this.gl.uniform1i(this.u2, 1);
+
+        this.gl.uniform1f(this.uP, this.progress);
+        this.gl.uniform1f(this.uT, t * 0.001);
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+        requestAnimationFrame((time) => this.render(time));
+      }
+    }
+
+    // 6. INITIALIZATION
+    document.addEventListener('DOMContentLoaded', () => {
+      renderContent();
+
+      // Spotlight tracking on Dock
+      const dock = document.querySelector('.dock-nav');
+      if (dock) {
+        dock.addEventListener('mousemove', (e) => {
+          const rect = dock.getBoundingClientRect();
+          dock.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
+          dock.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
+        });
+      }
+
+      // Initialize WebGL
+      const canvas = document.getElementById('ripple-canvas');
+      if (canvas) new WebGLSlider(canvas);
+
+      // Show toast
+      setTimeout(() => {
+        const toast = document.getElementById('live-toast');
+        if (toast) {
+          toast.classList.add('visible');
+          setTimeout(() => toast.classList.remove('visible'), 6000);
+        }
+      }, 1500);
+    });
+  </script>
+</body>
+</html>
